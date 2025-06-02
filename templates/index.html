@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CO2モニター リアルタイムデータ</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.0/socket.io.js"></script>
+    <style>
+        /* style.cssに追加しても良いですが、ここではHTML内に直接記述します */
+        #history-list {
+            list-style: none; /* リストの黒丸を消す */
+            padding: 0;
+            max-height: 300px; /* 履歴リストの最大高さを設定 */
+            overflow-y: auto; /* 高さを超えたらスクロールできるようにする */
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            margin-top: 20px;
+            background-color: #f9f9f9;
+        }
+
+        #history-list li {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            font-size: 0.9em;
+            display: flex;
+            justify-content: space-between; /* 左右に要素を配置 */
+            align-items: center;
+        }
+
+        #history-list li:last-child {
+            border-bottom: none; /* 最後の要素の下線は不要 */
+        }
+
+        #history-list li span {
+            margin-right: 10px;
+        }
+
+        .data-item-timestamp {
+            font-weight: normal;
+            color: #666;
+            flex-grow: 1; /* スペースを埋める */
+            text-align: left;
+        }
+        .data-item-co2, .data-item-temp {
+            font-weight: bold;
+            color: #333;
+            min-width: 80px; /* 最低幅を設定して揃える */
+            text-align: right;
+        }
+        .data-item-co2 {
+            color: #dc3545; /* CO2値を強調 */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CO2モニター リアルタイムデータ</h1>
+        
+        <h2>現在のデータ</h2>
+        <div class="data-display current-data">
+            <p>最終更新日時: <span id="timestamp">--/--/-- --:--:--</span></p>
+            <p>CO2濃度: <span id="co2-value">---</span> ppm</p>
+            <p>温度: <span id="temperature">--.--</span> °C</p>
+        </div>
+
+        <p class="status" id="status">サーバーに接続中...</p>
+
+        <h2>履歴データ</h2>
+        <ul id="history-list">
+            </ul>
+    </div>
+
+    <script type="text/javascript">
+        var socket = io();
+        var historyList = document.getElementById('history-list'); // 履歴リストの要素を取得
+
+        socket.on('connect', function() {
+            console.log('サーバーに接続しました！');
+            document.getElementById('status').innerText = 'サーバーに接続済み';
+            document.getElementById('status').style.color = 'green';
+        });
+
+        socket.on('disconnect', function() {
+            console.log('サーバーから切断されました。');
+            document.getElementById('status').innerText = 'サーバーから切断されました';
+            document.getElementById('status').style.color = 'red';
+        });
+
+        socket.on('new_co2_data', function(data) {
+            console.log('新しいデータを受信しました:', data);
+            
+            // 1. 最新データの表示を更新
+            document.getElementById('timestamp').innerText = data.timestamp;
+            document.getElementById('co2-value').innerText = data.co2;
+            document.getElementById('temperature').innerText = data.temp;
+
+            // 2. 履歴リストに新しいデータを追加
+            var listItem = document.createElement('li'); // 新しいリストアイテムを作成
+            listItem.innerHTML = `
+                <span class="data-item-timestamp">${data.timestamp}</span>
+                <span class="data-item-co2">${data.co2} ppm</span>
+                <span class="data-item-temp">${data.temp} °C</span>
+            `;
+            
+            // リストの先頭に追加 (新しいデータが上に来るように)
+            historyList.prepend(listItem); 
+
+            // オプション: 履歴の数を制限する (例: 最新30件のみ表示)
+            const maxHistoryItems = 30;
+            while (historyList.children.length > maxHistoryItems) {
+                historyList.removeChild(historyList.lastChild); // 古いものを削除
+            }
+        });
+
+        socket.on('connect_error', (error) => {
+            console.error('WebSocket接続エラー:', error);
+            document.getElementById('status').innerText = 'WebSocket接続エラー';
+            document.getElementById('status').style.color = 'red';
+        });
+    </script>
+</body>
+</html>
