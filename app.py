@@ -7,12 +7,12 @@ import threading
 
 # Flaskアプリケーションの初期化
 app = Flask(__name__)
-# Flask-SocketIOの初期化 (WebSocket通信用)
-app.config['SECRET_KEY'] = 'your_secret_key_here' # 本番環境ではもっと複雑なキーにしてください
-socketio = SocketIO(app)
+app.config['SECRET_KEY'] = 'your_secret_key_here'
 
-# CO2モニターの初期化 (グローバルに設定して、どこからでもアクセスできるようにする)
-# サーバー起動時に一度だけ初期化する
+# Flask-SocketIOの初期化
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+
+# CO2モニターの初期化
 co2_monitor = None
 try:
     co2_monitor = co2.CO2monitor()
@@ -20,20 +20,20 @@ try:
 except Exception as e:
     print(f"CO2モニターの初期化に失敗しました: {e}")
     print("CO2モニターが正しく接続されているか確認してください。")
-    # 初期化に失敗してもサーバーは起動させるが、データは取得できないことを示す
     co2_monitor = None
 
-# データ取得用のスレッド（メインのWebサーバーとは別に動く）
+# データ取得用のスレッド
 def background_thread():
     """
     CO2モニターからデータを定期的に読み込み、接続されている全てのクライアントに送信する。
     """
     if co2_monitor is None:
-        print("CO2モニターが利用できないため、データ取得スレッドは開始されません。")
+        print("CO2モニターが利用できないため、テストデータを送信します。")
+        # テスト用のダミーデータを送信
+        send_test_data()
         return
 
     print("データ取得スレッドを開始しました。")
-    # データを取得する間隔（秒）
     interval_seconds = 5
 
     while True:
@@ -41,16 +41,12 @@ def background_thread():
             data = co2_monitor.read_data()
             timestamp, co2_value, temperature = data
 
-            # 取得したデータを辞書形式にまとめる
-            # JavaScriptで扱いやすいようにタイムスタンプを文字列に変換
             current_data = {
                 'timestamp': timestamp.strftime('%Y/%m/%d %H:%M:%S'),
                 'co2': co2_value,
-                'temp': f"{temperature:.2f}" # 小数点以下2桁にフォーマット
+                'temp': f"{temperature:.2f}"
             }
 
-            # 接続されている全てのWebブラウザにデータを送信
-            # 'new_co2_data'という名前のイベントでデータを送信
             socketio.emit('new_co2_data', current_data)
             print(f"データ送信: {current_data}")
 
@@ -61,37 +57,62 @@ def background_thread():
                 'co2': 'エラー',
                 'temp': 'エラー'
             }
-            socketio.emit('new_co2_data', current_data) # エラー時も通知
+            socketio.emit('new_co2_data', current_data)
         
         time.sleep(interval_seconds)
 
-# Webページのルート（ホームページ）
+def send_test_data():
+    """
+    CO2モニターが利用できない場合のテストデータ送信
+    """
+    import random
+    interval_seconds = 5
+    base_co2 = 400
+    base_temp = 22.0
+    
+    print("テストデータの送信を開始します。")
+    
+    while True:
+        try:
+            # ランダムなテストデータを生成
+            co2_value = base_co2 + random.randint(-50, 100)
+            temp_value = base_temp + random.uniform(-2.0, 3.0)
+            
+            current_data = {
+                'timestamp': datetime.datetime.now().strftime('%Y/%m/%d %H:%M:%S'),
+                'co2': co2_value,
+                'temp': f"{temp_value:.2f}"
+            }
+
+            socketio.emit('new_co2_data', current_data)
+            print(f"テストデータ送信: {current_data}")
+            
+        except Exception as e:
+            print(f"テストデータ送信中にエラーが発生しました: {e}")
+        
+        time.sleep(interval_seconds)
+
 @app.route('/')
 def index():
-    """
-    クライアントがWebサーバーにアクセスしたときに表示するHTMLファイルを返す。
-    """
     return render_template('index.html')
 
-# クライアントがWebSocketに接続したときの処理
 @socketio.on('connect')
 def test_connect():
     print('クライアントが接続しました。')
-    # 接続時に初期データ（もしあれば）を送信することも可能
+    # 接続時に歓迎メッセージを送信（オプション）
+    emit('server_message', {'message': 'CO2モニターに接続しました'})
 
-# クライアントがWebSocketから切断したときの処理
 @socketio.on('disconnect')
 def test_disconnect():
     print('クライアントが切断しました。')
 
-# アプリケーション起動時の処理
 if __name__ == '__main__':
-    # データ取得スレッドをWebサーバーとは別に起動
-    # daemon=True にすると、メインプログラムが終了したらスレッドも自動で終了する
+    # データ取得スレッドを開始
     thread = threading.Thread(target=background_thread, daemon=True)
     thread.start()
-
+    
+    print("Webサーバーを起動しています...")
+    print("ブラウザで http://localhost:5000 にアクセスしてください")
+    
     # Webサーバーを起動
-    # host='0.0.0.0' にすると、Raspberry PiのIPアドレスで外部からアクセスできるようになる
-    # port=5000 はデフォルトのポート番号
-    socketio.run(app, host='0.0.0.0', port=5000, debug=False) # debug=True は開発時のみ
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True)

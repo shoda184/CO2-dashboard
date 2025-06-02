@@ -6,12 +6,14 @@
     <title>CO2モニター リアルタイムグラフ</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <script src="/socket.io/socket.io.js"></script>
+    <!-- date-fns を正しく読み込み -->
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@2.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <!-- Socket.IO をCDNから読み込み -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
-        /* 既存のインラインスタイルは style.css に移行またはここから削除推奨 */
         #history-list {
-            list-style: none; padding: 0; max-height: 200px; /* 高さを少し調整 */
+            list-style: none; padding: 0; max-height: 200px;
             overflow-y: auto; border: 1px solid #ddd; border-radius: 5px;
             margin-top: 20px; background-color: #f9f9f9;
         }
@@ -44,15 +46,49 @@
         </div>
 
         <h2>履歴データ (直近30件)</h2>
-        <ul id="history-list">
-            </ul>
+        <ul id="history-list"></ul>
     </div>
 
     <script type="text/javascript">
-        var socket = io();
+        // Socket.IO の初期化
+        var socket;
+        try {
+            socket = io();
+        } catch (error) {
+            console.error('Socket.IO の初期化に失敗しました:', error);
+            document.getElementById('status').innerText = 'Socket.IO読み込みエラー';
+            document.getElementById('status').className = 'status disconnected';
+        }
+
         var historyList = document.getElementById('history-list');
         var co2TempChart;
-        const MAX_DATA_POINTS = 30; // グラフに表示する最大データ点数
+        const MAX_DATA_POINTS = 30;
+
+        // 日付文字列を Date オブジェクトに変換する関数
+        function parseDateTime(dateTimeString) {
+            // "2025/06/02 14:30:15" 形式を想定
+            const parts = dateTimeString.split(' ');
+            if (parts.length !== 2) return new Date();
+            
+            const datePart = parts[0]; // "2025/06/02"
+            const timePart = parts[1]; // "14:30:15"
+            
+            const dateComponents = datePart.split('/');
+            const timeComponents = timePart.split(':');
+            
+            if (dateComponents.length !== 3 || timeComponents.length !== 3) {
+                return new Date();
+            }
+            
+            const year = parseInt(dateComponents[0]);
+            const month = parseInt(dateComponents[1]) - 1; // JavaScriptの月は0ベース
+            const day = parseInt(dateComponents[2]);
+            const hour = parseInt(timeComponents[0]);
+            const minute = parseInt(timeComponents[1]);
+            const second = parseInt(timeComponents[2]);
+            
+            return new Date(year, month, day, hour, minute, second);
+        }
 
         // グラフの初期化
         function initializeChart() {
@@ -68,7 +104,8 @@
                             borderColor: 'rgba(220, 53, 69, 1)', // 赤系
                             backgroundColor: 'rgba(220, 53, 69, 0.1)',
                             yAxisID: 'yCO2',
-                            tension: 0.1
+                            tension: 0.1,
+                            fill: false
                         },
                         {
                             label: '温度 (°C)',
@@ -76,13 +113,18 @@
                             borderColor: 'rgba(0, 123, 255, 1)', // 青系
                             backgroundColor: 'rgba(0, 123, 255, 0.1)',
                             yAxisID: 'yTemp',
-                            tension: 0.1
+                            tension: 0.1,
+                            fill: false
                         }
                     ]
                 },
                 options: {
                     responsive: true,
                     maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
                     scales: {
                         x: {
                             type: 'time',
@@ -105,9 +147,6 @@
                             title: {
                                 display: true,
                                 text: 'CO2濃度 (ppm)'
-                            },
-                            grid: {
-                                drawOnChartArea: false // CO2軸のグリッドは主グリッドと重ならないように
                             }
                         },
                         yTemp: {
@@ -118,78 +157,105 @@
                                 display: true,
                                 text: '温度 (°C)'
                             },
-                            // グリッドが重ならないように、片方の軸のグリッドのみ表示 (デフォルトはyCO2が優先される)
+                            grid: {
+                                drawOnChartArea: false,
+                            }
                         }
                     },
                     plugins: {
                         tooltip: {
                             mode: 'index',
                             intersect: false
+                        },
+                        legend: {
+                            display: true
                         }
                     }
                 }
             });
         }
 
-        // サーバー接続/切断時の処理
-        socket.on('connect', function() {
-            document.getElementById('status').innerText = 'サーバーに接続済み';
-            document.getElementById('status').className = 'status connected';
-        });
+        // Socket.IOイベントハンドラー
+        if (socket) {
+            socket.on('connect', function() {
+                console.log('WebSocketに接続しました');
+                document.getElementById('status').innerText = 'サーバーに接続済み';
+                document.getElementById('status').className = 'status connected';
+            });
 
-        socket.on('disconnect', function() {
-            document.getElementById('status').innerText = 'サーバーから切断されました';
-            document.getElementById('status').className = 'status disconnected';
-        });
+            socket.on('disconnect', function() {
+                console.log('WebSocketから切断されました');
+                document.getElementById('status').innerText = 'サーバーから切断されました';
+                document.getElementById('status').className = 'status disconnected';
+            });
 
-        socket.on('connect_error', (error) => {
-            document.getElementById('status').innerText = 'WebSocket接続エラー';
-            document.getElementById('status').className = 'status disconnected';
-        });
+            socket.on('connect_error', (error) => {
+                console.error('WebSocket接続エラー:', error);
+                document.getElementById('status').innerText = 'WebSocket接続エラー';
+                document.getElementById('status').className = 'status disconnected';
+            });
 
-        // 新しいデータ受信時の処理
-        socket.on('new_co2_data', function(data) {
-            // 1. 最新データの表示を更新
-            document.getElementById('timestamp').innerText = data.timestamp;
-            document.getElementById('co2-value').innerText = data.co2;
-            document.getElementById('temperature').innerText = data.temp;
-
-            // 2. 履歴リストに追加
-            var listItem = document.createElement('li');
-            listItem.innerHTML = `
-                <span class="data-item-timestamp">${data.timestamp}</span>
-                <span class="data-item-co2">${data.co2} ${data.co2 !== 'エラー' ? 'ppm' : ''}</span>
-                <span class="data-item-temp">${data.temp} ${data.temp !== 'エラー' ? '°C' : ''}</span>
-            `;
-            historyList.prepend(listItem);
-            while (historyList.children.length > MAX_DATA_POINTS) {
-                historyList.removeChild(historyList.lastChild);
-            }
-
-            // 3. グラフデータを更新
-            if (co2TempChart) {
-                const now = dateFns.parse(data.timestamp, 'yyyy/MM/dd HH:mm:ss', new Date());
+            socket.on('new_co2_data', function(data) {
+                console.log('新しいデータを受信:', data);
                 
-                co2TempChart.data.labels.push(now);
+                // 1. 最新データの表示を更新
+                document.getElementById('timestamp').innerText = data.timestamp;
+                document.getElementById('co2-value').innerText = data.co2;
+                document.getElementById('temperature').innerText = data.temp;
+
+                // 2. 履歴リストに追加
+                var listItem = document.createElement('li');
+                listItem.innerHTML = `
+                    <span class="data-item-timestamp">${data.timestamp}</span>
+                    <span class="data-item-co2">${data.co2} ${data.co2 !== 'エラー' ? 'ppm' : ''}</span>
+                    <span class="data-item-temp">${data.temp} ${data.temp !== 'エラー' ? '°C' : ''}</span>
+                `;
+                historyList.prepend(listItem);
                 
-                const co2Val = (data.co2 === 'エラー' || isNaN(parseFloat(data.co2))) ? null : parseFloat(data.co2);
-                const tempVal = (data.temp === 'エラー' || isNaN(parseFloat(data.temp))) ? null : parseFloat(data.temp);
-
-                co2TempChart.data.datasets[0].data.push(co2Val);
-                co2TempChart.data.datasets[1].data.push(tempVal);
-
-                // データポイント数を制限
-                if (co2TempChart.data.labels.length > MAX_DATA_POINTS) {
-                    co2TempChart.data.labels.shift();
-                    co2TempChart.data.datasets[0].data.shift();
-                    co2TempChart.data.datasets[1].data.shift();
+                // 履歴リストの項目数制限
+                while (historyList.children.length > MAX_DATA_POINTS) {
+                    historyList.removeChild(historyList.lastChild);
                 }
-                co2TempChart.update();
-            }
-        });
+
+                // 3. グラフデータを更新
+                if (co2TempChart && data.co2 !== 'エラー' && data.temp !== 'エラー') {
+                    try {
+                        // 日付文字列をDateオブジェクトに変換
+                        const timestamp = parseDateTime(data.timestamp);
+                        
+                        // データの追加
+                        co2TempChart.data.labels.push(timestamp);
+                        
+                        const co2Val = parseFloat(data.co2);
+                        const tempVal = parseFloat(data.temp);
+                        
+                        // NaNチェック
+                        co2TempChart.data.datasets[0].data.push(isNaN(co2Val) ? null : co2Val);
+                        co2TempChart.data.datasets[1].data.push(isNaN(tempVal) ? null : tempVal);
+
+                        // データポイント数を制限
+                        if (co2TempChart.data.labels.length > MAX_DATA_POINTS) {
+                            co2TempChart.data.labels.shift();
+                            co2TempChart.data.datasets[0].data.shift();
+                            co2TempChart.data.datasets[1].data.shift();
+                        }
+                        
+                        // グラフを更新
+                        co2TempChart.update('none'); // アニメーションなしで高速更新
+                        
+                        console.log('グラフが更新されました');
+                    } catch (error) {
+                        console.error('グラフ更新エラー:', error);
+                    }
+                } else if (data.co2 === 'エラー' || data.temp === 'エラー') {
+                    console.log('エラーデータのためグラフ更新をスキップ');
+                }
+            });
+        }
 
         // DOM読み込み完了時にグラフを初期化
         document.addEventListener('DOMContentLoaded', function () {
+            console.log('DOMが読み込まれました。グラフを初期化します。');
             initializeChart();
         });
     </script>
