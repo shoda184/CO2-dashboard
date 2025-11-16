@@ -1,18 +1,1 @@
-Traceback (most recent call last):
-  File "/home/pi/my_env/bin/co2meter_server", line 8, in <module>
-    sys.exit(start_server())
-             ^^^^^^^^^^^^^^
-  File "/home/pi/my_env/lib/python3.11/site-packages/co2meter/co2meter.py", line 460, in start_server
-    from .server import start_server as start
-  File "/home/pi/my_env/lib/python3.11/site-packages/co2meter/server.py", line 24, in <module>
-    import pandas as pd
-ModuleNotFoundError: No module named 'pandas'
-Traceback (most recent call last):
-  File "/home/pi/my_env/bin/co2meter_server", line 8, in <module>
-    sys.exit(start_server())
-             ^^^^^^^^^^^^^^
-  File "/home/pi/my_env/lib/python3.11/site-packages/co2meter/co2meter.py", line 460, in start_server
-    from .server import start_server as start
-  File "/home/pi/my_env/lib/python3.11/site-packages/co2meter/server.py", line 24, in <module>
-    import pandas as pd
-ModuleNotFoundError: No module named 'pandas'
+
